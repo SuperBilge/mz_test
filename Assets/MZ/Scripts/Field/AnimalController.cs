@@ -6,8 +6,9 @@ namespace MZ.Field
 {
     public class AnimalController : FieldEntity
     {
-        public FeedController targetFeed;
         public bool canMoveDiagonal;
+        [HideInInspector] public FeedController targetFeed;
+        [HideInInspector] public int cachedPrioritySqrDistance;
 
         private static readonly Vector2Int[] DIRS_4 = {
             new Vector2Int(0, 1), new Vector2Int(0, -1),
@@ -21,21 +22,31 @@ namespace MZ.Field
             new Vector2Int(-1, 1), new Vector2Int(-1, -1)
         };
 
+        private HashSet<Vector2Int> _visited = new HashSet<Vector2Int>();
+        private Queue<Vector2Int> _queue = new Queue<Vector2Int>();
+        private Dictionary<Vector2Int, Vector2Int> _parent = new Dictionary<Vector2Int, Vector2Int>();
+        private List<Vector2Int> _pathResult = new List<Vector2Int>();
+
         public List<Vector2Int> FindPath(Vector2Int target, int fieldLength, HashSet<Vector2Int> obstacles, bool canDiagonal)
         {
-            if (position == target) return new List<Vector2Int>();
+            _pathResult.Clear();
+
+            if (position == target) return _pathResult;
             if (obstacles.Contains(target)) return null;
 
             var dirs = canDiagonal ? DIRS_8 : DIRS_4;
-            var visited = new HashSet<Vector2Int> { position };
-            var queue = new Queue<Vector2Int>();
-            var parent = new Dictionary<Vector2Int, Vector2Int>();
 
-            queue.Enqueue(position);
+            _visited.Clear();
+            _visited.Add(position);
 
-            while (queue.Count > 0)
+            _queue.Clear();
+            _queue.Enqueue(position);
+
+            _parent.Clear();
+
+            while (_queue.Count > 0)
             {
-                var current = queue.Dequeue();
+                var current = _queue.Dequeue();
 
                 foreach (var dir in dirs)
                 {
@@ -43,27 +54,27 @@ namespace MZ.Field
 
                     if (next == target)
                     {
-                        var path = new List<Vector2Int> { next };
+                        _pathResult.Add(next);
                         var node = current;
                         while (node != position)
                         {
-                            path.Add(node);
-                            node = parent[node];
+                            _pathResult.Add(node);
+                            node = _parent[node];
                         }
-                        path.Reverse();
-                        return path;
+                        _pathResult.Reverse();
+                        return _pathResult;
                     }
 
                     if (next.x < 0 || next.x >= fieldLength || next.y < 0 || next.y >= fieldLength)
                         continue;
-                    if (visited.Contains(next))
+                    if (_visited.Contains(next))
                         continue;
                     if (obstacles.Contains(next))
                         continue;
 
-                    visited.Add(next);
-                    parent[next] = current;
-                    queue.Enqueue(next);
+                    _visited.Add(next);
+                    _parent[next] = current;
+                    _queue.Enqueue(next);
                 }
             }
 

@@ -49,6 +49,9 @@ MonoBehaviour:
   id: 0
   position: {x: 0, y: 0}
   mainRenderer: {fileID: 871597534794463239}
+  targetFeed: {fileID: 0}
+  canMoveDiagonal: 1
+  cachedPrioritySqrDistance: 0
 --- !u!33 &7525509828387000445
 MeshFilter:
   m_ObjectHideFlags: 0

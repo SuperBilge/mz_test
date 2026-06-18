@@ -3562,7 +3562,7 @@ MonoBehaviour:
   animalPrefab: {fileID: 172436035052006264, guid: 3aa248d30607a8641a70897c72ff0e43, type: 3}
   feedPrefab: {fileID: 6454806745671459872, guid: 97b4c45a0cca4594a8cecde908e88ec0, type: 3}
   particlePrefab: {fileID: 5145594660802868602, guid: c1b439a6473e50a49a4ef1ef46183a24, type: 3}
-  initialTickDuration: 10
+  initialTickDuration: 100
 --- !u!4 &1504928999
 Transform:
   m_ObjectHideFlags: 0

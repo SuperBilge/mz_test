@@ -5,7 +5,7 @@ namespace MZ.Field
 {
     public class FeedController : FieldEntity
     {
-        public AnimalController ownerAnimal;
+        [HideInInspector] public AnimalController ownerAnimal;
 
         public void Respawn(int fieldLength, float maxDistance, HashSet<Vector2Int> occupiedCells)
         {

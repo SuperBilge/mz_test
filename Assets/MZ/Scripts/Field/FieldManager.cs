@@ -1,6 +1,5 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
-using DG.Tweening;
 using MZ.Sim;
 using MZ.Utility;
 using UnityEngine;
@@ -28,6 +27,14 @@ namespace MZ.Field
         private int _currentFieldLength;
         private int _currentAnimalSpeed;
         private int _simSpeed;
+
+        private readonly List<AnimalController> _activeAnimals = new List<AnimalController>();
+        private readonly HashSet<Vector2Int> _obstacles = new HashSet<Vector2Int>();
+        private readonly HashSet<Vector2Int> _occupiedCells = new HashSet<Vector2Int>();
+
+        private static readonly WaitForSeconds PauseWait = new WaitForSeconds(0.1f);
+        private float _lastTickDuration;
+        private WaitForSeconds _tickWait;
 
         public void SetSimSpeed(int speedValue)
         {
@@ -109,7 +116,7 @@ namespace MZ.Field
             _particlePool = null;
         }
 
-        private void ClearChildren(Transform parent)
+        private static void ClearChildren(Transform parent)
         {
             if (parent == null) return;
             for (int i = parent.childCount - 1; i >= 0; i--)
@@ -173,7 +180,7 @@ namespace MZ.Field
             }
         }
 
-        private Vector2Int FindRandomFreeCell(int fieldLength, HashSet<Vector2Int> occupied)
+        private static Vector2Int FindRandomFreeCell(int fieldLength, HashSet<Vector2Int> occupied)
         {
             for (int attempt = 0; attempt < 100; attempt++)
             {
@@ -217,7 +224,7 @@ namespace MZ.Field
             {
                 if (_simSpeed <= 0 || _animals == null || _animals.Count == 0)
                 {
-                    yield return new WaitForSeconds(0.1f);
+                    yield return PauseWait;
                     continue;
                 }
 
@@ -229,48 +236,56 @@ namespace MZ.Field
         {
             float tickDuration = initialTickDuration / _currentAnimalSpeed / _simSpeed;
 
-            var activeAnimals = new List<AnimalController>();
-            foreach (var a in _animals)
+            _activeAnimals.Clear();
+            for (int i = 0; i < _animals.Count; i++)
             {
+                var a = _animals[i];
                 if (a.position != a.targetFeed.position)
-                    activeAnimals.Add(a);
+                {
+                    Vector2Int distVec = a.position - a.targetFeed.position;
+                    a.cachedPrioritySqrDistance = distVec.x * distVec.x + distVec.y * distVec.y;
+                    _activeAnimals.Add(a);
+                }
             }
 
-            if (activeAnimals.Count == 0)
+            if (_activeAnimals.Count == 0)
             {
-                yield return new WaitForSeconds(tickDuration);
+                yield return GetTickWait(tickDuration);
                 yield break;
             }
 
-            activeAnimals.Sort((a, b) =>
+            _activeAnimals.Sort((a, b) =>
             {
-                float distA = Vector2Int.Distance(a.position, a.targetFeed.position);
-                float distB = Vector2Int.Distance(b.position, b.targetFeed.position);
-                int cmp = distA.CompareTo(distB);
+                int cmp = a.cachedPrioritySqrDistance.CompareTo(b.cachedPrioritySqrDistance);
                 if (cmp != 0) return cmp;
                 return a.id.CompareTo(b.id);
             });
 
-            var obstacles = new HashSet<Vector2Int>();
-            foreach (var a in _animals)
-                obstacles.Add(a.position);
+            _obstacles.Clear();
+            for (int i = 0; i < _animals.Count; i++)
+                _obstacles.Add(_animals[i].position);
 
-            foreach (var animal in activeAnimals)
+            for (int i = 0; i < _activeAnimals.Count; i++)
             {
-                var blocked = new HashSet<Vector2Int>(obstacles);
-                blocked.Remove(animal.position);
+                var animal = _activeAnimals[i];
+                _obstacles.Remove(animal.position);
 
-                var path = animal.FindPath(animal.targetFeed.position, _currentFieldLength, blocked, animal.canMoveDiagonal);
+                var path = animal.FindPath(animal.targetFeed.position, _currentFieldLength, _obstacles, animal.canMoveDiagonal);
 
                 if (path != null && path.Count > 0)
                 {
                     Vector2Int nextCell = path[0];
-                    obstacles.Add(nextCell);
+                    _obstacles.Add(animal.position);
+                    _obstacles.Add(nextCell);
                     animal.MoveToCell(nextCell, tickDuration);
+                }
+                else
+                {
+                    _obstacles.Add(animal.position);
                 }
             }
 
-            yield return new WaitForSeconds(tickDuration);
+            yield return GetTickWait(tickDuration);
 
             for (int i = _animals.Count - 1; i >= 0; i--)
             {
@@ -280,6 +295,16 @@ namespace MZ.Field
                     HandleAnimalEats(animal);
                 }
             }
+        }
+
+        private WaitForSeconds GetTickWait(float tickDuration)
+        {
+            if (_tickWait == null || Mathf.Abs(_lastTickDuration - tickDuration) > 0.0001f)
+            {
+                _tickWait = new WaitForSeconds(tickDuration);
+                _lastTickDuration = tickDuration;
+            }
+            return _tickWait;
         }
 
         private void HandleAnimalEats(AnimalController animal)
@@ -295,12 +320,12 @@ namespace MZ.Field
                 particle.Show(feedColor);
             }
 
-            var occupiedCells = new HashSet<Vector2Int>();
-            foreach (var a in _animals)
-                occupiedCells.Add(a.position);
+            _occupiedCells.Clear();
+            for (int i = 0; i < _animals.Count; i++)
+                _occupiedCells.Add(_animals[i].position);
 
             float maxDist = _currentAnimalSpeed * 5f;
-            feed.Respawn(_currentFieldLength, maxDist, occupiedCells);
+            feed.Respawn(_currentFieldLength, maxDist, _occupiedCells);
         }
 
         private AnimalController CreateAnimal(int i, int x, int y, Color color)
