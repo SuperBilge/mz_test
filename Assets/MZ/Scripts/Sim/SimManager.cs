@@ -10,12 +10,13 @@ namespace MZ.Sim
         [Header("Managers")]
         [SerializeField] private UIManager uiManager;
         [SerializeField] private FieldManager fieldManager;
-        
+
         [Header("Controls")]
         [SerializeField] private ControlObject fieldLengthControl;
         [SerializeField] private ControlObject animalsCountControl;
         [SerializeField] private ControlObject animalSpeedControl;
-        
+        [SerializeField] private ControlObject simSpeedControl;
+
         private string SavedSimString
         {
             get => PlayerPrefs.GetString("SavedSimString", string.Empty);
@@ -25,12 +26,14 @@ namespace MZ.Sim
         private bool _simInProcess = false;
 
         private SimParams _currentParams;
-        
+
         private void Awake()
         {
             uiManager.StartButtonPressed += UiManagerOnStartButtonPressed;
             uiManager.LoadButtonPressed += UiManagerOnLoadButtonPressed;
             uiManager.SaveButtonPressed += UiManagerOnSaveButtonPressed;
+
+            simSpeedControl.OnValueChanged += SimSpeedControlOnValueChanged;
         }
 
         private void OnDestroy()
@@ -38,6 +41,13 @@ namespace MZ.Sim
             uiManager.StartButtonPressed -= UiManagerOnStartButtonPressed;
             uiManager.LoadButtonPressed -= UiManagerOnLoadButtonPressed;
             uiManager.SaveButtonPressed -= UiManagerOnSaveButtonPressed;
+
+            simSpeedControl.OnValueChanged -= SimSpeedControlOnValueChanged;
+        }
+
+        private void SimSpeedControlOnValueChanged(int speedValue)
+        {
+            fieldManager.SetSimSpeed(speedValue);
         }
 
         #region ButtonsRegion
@@ -51,9 +61,9 @@ namespace MZ.Sim
         {
             if (_simInProcess) return;
             if (string.IsNullOrEmpty(SavedSimString)) return;
-            
+
             _simInProcess = true;
-            
+
             uiManager.ShowSimState();
             LoadSim();
         }
@@ -62,7 +72,7 @@ namespace MZ.Sim
         {
             if (_simInProcess) return;
             _simInProcess = true;
-            
+
             uiManager.ShowSimState();
             NewSim();
         }
@@ -73,6 +83,7 @@ namespace MZ.Sim
         {
             _currentParams = new SimParams(fieldLengthControl.CurrentValue, animalsCountControl.CurrentValue,
                 animalSpeedControl.CurrentValue);
+            fieldManager.SetSimSpeed(simSpeedControl.CurrentValue);
             fieldManager.InitField(_currentParams);
         }
 
@@ -87,6 +98,7 @@ namespace MZ.Sim
         private void LoadSim()
         {
             _currentParams = JsonUtility.FromJson<SimParams>(SavedSimString);
+            fieldManager.SetSimSpeed(simSpeedControl.CurrentValue);
             fieldManager.InitField(_currentParams);
         }
     }

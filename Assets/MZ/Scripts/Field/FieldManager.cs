@@ -1,6 +1,10 @@
-﻿using System.Collections.Generic;
+﻿using System.Collections;
+using System.Collections.Generic;
+using DG.Tweening;
 using MZ.Sim;
+using MZ.Utility;
 using UnityEngine;
+using UnityEngine.Pool;
 
 namespace MZ.Field
 {
@@ -13,15 +17,32 @@ namespace MZ.Field
         [SerializeField] private FieldTileController fieldTilePrefab;
         [SerializeField] private AnimalController animalPrefab;
         [SerializeField] private FeedController feedPrefab;
+        [SerializeField] private FeedParticle particlePrefab;
+        [SerializeField] private float initialTickDuration = 1f;
 
         private FieldTileController[] _fieldTiles;
         private List<AnimalController> _animals;
         private List<FeedController> _feeds;
+        private ObjectPool<FeedParticle> _particlePool;
+        private Coroutine _simCoroutine;
+        private int _currentFieldLength;
+        private int _currentAnimalSpeed;
+        private int _simSpeed;
+
+        public void SetSimSpeed(int speedValue)
+        {
+            _simSpeed = speedValue;
+        }
 
         public void InitField(SimParams simParams)
         {
+            ClearField();
+
             int index = 0;
             int fieldLength = simParams.FieldLength;
+
+            _currentFieldLength = fieldLength;
+            _currentAnimalSpeed = simParams.AnimalSpeed;
 
             _fieldTiles = new FieldTileController[fieldLength * fieldLength];
 
@@ -45,6 +66,64 @@ namespace MZ.Field
             else
             {
                 CreateAnimalsAndFeed(simParams);
+            }
+
+            LinkAnimalsAndFeed();
+
+            _particlePool = new ObjectPool<FeedParticle>(
+                createFunc: () =>
+                {
+                    var p = Instantiate(particlePrefab, transform);
+                    p.Init(particle => _particlePool.Release(particle));
+                    p.gameObject.SetActive(false);
+                    return p;
+                },
+                actionOnGet: p => p.gameObject.SetActive(true),
+                actionOnRelease: p => p.gameObject.SetActive(false),
+                actionOnDestroy: p => Destroy(p.gameObject),
+                maxSize: 20
+            );
+
+            _simCoroutine = StartCoroutine(SimLoop());
+        }
+
+        private void ClearField()
+        {
+            if (_simCoroutine != null)
+            {
+                StopCoroutine(_simCoroutine);
+                _simCoroutine = null;
+            }
+
+            ClearChildren(tilesParent);
+            ClearChildren(animalsParent);
+            ClearChildren(feedParent);
+
+            var particles = GetComponentsInChildren<FeedParticle>(true);
+            foreach (var p in particles)
+                Destroy(p.gameObject);
+
+            _fieldTiles = null;
+            _animals = null;
+            _feeds = null;
+            _particlePool = null;
+        }
+
+        private void ClearChildren(Transform parent)
+        {
+            if (parent == null) return;
+            for (int i = parent.childCount - 1; i >= 0; i--)
+            {
+                Destroy(parent.GetChild(i).gameObject);
+            }
+        }
+
+        private void LinkAnimalsAndFeed()
+        {
+            for (int i = 0; i < _animals.Count && i < _feeds.Count; i++)
+            {
+                _animals[i].targetFeed = _feeds[i];
+                _feeds[i].ownerAnimal = _animals[i];
             }
         }
 
@@ -130,6 +209,98 @@ namespace MZ.Field
                 animalPos.y
             );
             return occupiedCells.Contains(fallback) ? animalPos : fallback;
+        }
+
+        private IEnumerator SimLoop()
+        {
+            while (true)
+            {
+                if (_simSpeed <= 0 || _animals == null || _animals.Count == 0)
+                {
+                    yield return new WaitForSeconds(0.1f);
+                    continue;
+                }
+
+                yield return SimTick();
+            }
+        }
+
+        private IEnumerator SimTick()
+        {
+            float tickDuration = initialTickDuration / _currentAnimalSpeed / _simSpeed;
+
+            var activeAnimals = new List<AnimalController>();
+            foreach (var a in _animals)
+            {
+                if (a.position != a.targetFeed.position)
+                    activeAnimals.Add(a);
+            }
+
+            if (activeAnimals.Count == 0)
+            {
+                yield return new WaitForSeconds(tickDuration);
+                yield break;
+            }
+
+            activeAnimals.Sort((a, b) =>
+            {
+                float distA = Vector2Int.Distance(a.position, a.targetFeed.position);
+                float distB = Vector2Int.Distance(b.position, b.targetFeed.position);
+                int cmp = distA.CompareTo(distB);
+                if (cmp != 0) return cmp;
+                return a.id.CompareTo(b.id);
+            });
+
+            var obstacles = new HashSet<Vector2Int>();
+            foreach (var a in _animals)
+                obstacles.Add(a.position);
+
+            foreach (var animal in activeAnimals)
+            {
+                var blocked = new HashSet<Vector2Int>(obstacles);
+                blocked.Remove(animal.position);
+
+                var path = animal.FindPath(animal.targetFeed.position, _currentFieldLength, blocked, animal.canMoveDiagonal);
+
+                if (path != null && path.Count > 0)
+                {
+                    Vector2Int nextCell = path[0];
+                    obstacles.Add(nextCell);
+                    animal.MoveToCell(nextCell, tickDuration);
+                }
+            }
+
+            yield return new WaitForSeconds(tickDuration);
+
+            for (int i = _animals.Count - 1; i >= 0; i--)
+            {
+                var animal = _animals[i];
+                if (animal.position == animal.targetFeed.position)
+                {
+                    HandleAnimalEats(animal);
+                }
+            }
+        }
+
+        private void HandleAnimalEats(AnimalController animal)
+        {
+            var feed = animal.targetFeed;
+            var feedColor = feed.EntityColor;
+            Vector3 feedWorldPos = feed.transform.position;
+
+            var particle = _particlePool.Get();
+            if (particle != null)
+            {
+                particle.transform.position = feedWorldPos;
+                particle.Show(feedColor);
+            }
+
+            var occupiedCells = new HashSet<Vector2Int>();
+            foreach (var a in _animals)
+                occupiedCells.Add(a.position);
+
+            float maxDist = _currentAnimalSpeed * 5f;
+            feed.Respawn(_currentFieldLength, maxDist, occupiedCells);
         }
 
         private AnimalController CreateAnimal(int i, int x, int y, Color color)

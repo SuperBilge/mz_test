@@ -11,6 +11,7 @@ namespace MZ.UI
         [SerializeField] private TextMeshProUGUI controlText;
         [SerializeField] private Vector2Int minMaxField;
         [SerializeField] private ControlObject dependantFromControl;
+        [SerializeField] private int defaultValue;
 
         public event Action<int> OnValueChanged;
 
@@ -32,7 +33,7 @@ namespace MZ.UI
                 dependantFromControl.OnValueChanged += OnOtherSliderValueChanged;
             }
             
-            CurrentValue = minMaxField.x;
+            CurrentValue = defaultValue;
             
             controlSlider.minValue = minMaxField.x;
             controlSlider.maxValue = minMaxField.y;
