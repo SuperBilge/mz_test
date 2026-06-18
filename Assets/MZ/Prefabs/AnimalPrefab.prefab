@@ -12,6 +12,7 @@ GameObject:
   - component: {fileID: 172436035052006264}
   - component: {fileID: 7525509828387000445}
   - component: {fileID: 871597534794463239}
+  - component: {fileID: -1000000000}
   m_Layer: 0
   m_Name: AnimalPrefab
   m_TagString: Untagged
@@ -50,8 +51,7 @@ MonoBehaviour:
   position: {x: 0, y: 0}
   mainRenderer: {fileID: 871597534794463239}
   targetFeed: {fileID: 0}
-  canMoveDiagonal: 1
-  cachedPrioritySqrDistance: 0
+  _agent: {fileID: -1000000000}
 --- !u!33 &7525509828387000445
 MeshFilter:
   m_ObjectHideFlags: 0
@@ -59,7 +59,7 @@ MeshFilter:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 3625423010235615178}
-  m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+  m_Mesh: {fileID: 10208, guid: 0000000000000000e000000000000000, type: 0}
 --- !u!23 &871597534794463239
 MeshRenderer:
   m_ObjectHideFlags: 0
@@ -109,3 +109,25 @@ MeshRenderer:
   m_SortingOrder: 0
   m_MaskInteraction: 0
   m_AdditionalVertexStreams: {fileID: 0}
+--- !u!195 &-1000000000
+NavMeshAgent:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3625423010235615178}
+  m_Enabled: 1
+  m_AgentTypeID: 0
+  m_Radius: 0.6
+  m_Speed: 3.5
+  m_Acceleration: 8
+  avoidancePriority: 50
+  m_AngularSpeed: 360
+  m_StoppingDistance: 1.05
+  m_AutoTraverseOffMeshLink: 1
+  m_AutoBraking: 1
+  m_AutoRepath: 1
+  m_Height: 2.45
+  m_BaseOffset: 0.85
+  m_WalkableMask: 4294967295
+  m_ObstacleAvoidanceType: 4

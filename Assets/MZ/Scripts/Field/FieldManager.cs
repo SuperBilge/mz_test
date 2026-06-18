@@ -1,8 +1,9 @@
-﻿using System.Collections;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using MZ.Sim;
 using MZ.Utility;
+using Unity.AI.Navigation;
 using UnityEngine;
+using UnityEngine.AI;
 using UnityEngine.Pool;
 
 namespace MZ.Field
@@ -17,42 +18,44 @@ namespace MZ.Field
         [SerializeField] private AnimalController animalPrefab;
         [SerializeField] private FeedController feedPrefab;
         [SerializeField] private FeedParticle particlePrefab;
-        [SerializeField] private float initialTickDuration = 1f;
+        [SerializeField] private float baseAgentSpeed = 3.5f;
 
         private FieldTileController[] _fieldTiles;
         private List<AnimalController> _animals;
         private List<FeedController> _feeds;
         private ObjectPool<FeedParticle> _particlePool;
-        private Coroutine _simCoroutine;
         private int _currentFieldLength;
         private int _currentAnimalSpeed;
         private int _simSpeed;
-
-        private readonly List<AnimalController> _activeAnimals = new List<AnimalController>();
-        private readonly HashSet<Vector2Int> _obstacles = new HashSet<Vector2Int>();
-        private readonly HashSet<Vector2Int> _occupiedCells = new HashSet<Vector2Int>();
-
-        private static readonly WaitForSeconds PauseWait = new WaitForSeconds(0.1f);
-        private float _lastTickDuration;
-        private WaitForSeconds _tickWait;
+        private NavMeshSurface _navMeshSurface;
+        private HashSet<Vector2Int> _occupiedCells = new HashSet<Vector2Int>();
+        private bool _simulationActive;
 
         public void SetSimSpeed(int speedValue)
         {
             _simSpeed = speedValue;
+            UpdateAgentSpeeds();
+        }
+
+        private void UpdateAgentSpeeds()
+        {
+            if (_animals == null) return;
+            float speed = _simSpeed <= 0 ? 0f : baseAgentSpeed * _currentAnimalSpeed * _simSpeed;
+            for (int i = 0; i < _animals.Count; i++)
+                _animals[i].AgentSpeed = speed;
         }
 
         public void InitField(SimParams simParams)
         {
             ClearField();
+            _simulationActive = true;
 
             int index = 0;
             int fieldLength = simParams.FieldLength;
-
             _currentFieldLength = fieldLength;
             _currentAnimalSpeed = simParams.AnimalSpeed;
 
             _fieldTiles = new FieldTileController[fieldLength * fieldLength];
-
             for (int x = 0; x < fieldLength; x++)
             {
                 for (int y = 0; y < fieldLength; y++)
@@ -63,19 +66,28 @@ namespace MZ.Field
                 }
             }
 
+            _navMeshSurface = tilesParent.gameObject.AddComponent<NavMeshSurface>();
+            _navMeshSurface.collectObjects = CollectObjects.Children;
+            _navMeshSurface.useGeometry = NavMeshCollectGeometry.RenderMeshes;
+            _navMeshSurface.BuildNavMesh();
+
             _animals = new List<AnimalController>();
             _feeds = new List<FeedController>();
 
             if (simParams.Animals != null && simParams.Animals.Length > 0)
-            {
                 RestoreAnimalsAndFeed(simParams);
-            }
             else
-            {
                 CreateAnimalsAndFeed(simParams);
-            }
 
             LinkAnimalsAndFeed();
+
+            for (int i = 0; i < _animals.Count; i++)
+            {
+                var animal = _animals[i];
+                animal.SetAgentDestination(animal.targetFeed.transform.position);
+            }
+
+            UpdateAgentSpeeds();
 
             _particlePool = new ObjectPool<FeedParticle>(
                 createFunc: () =>
@@ -90,16 +102,43 @@ namespace MZ.Field
                 actionOnDestroy: p => Destroy(p.gameObject),
                 maxSize: 20
             );
+        }
 
-            _simCoroutine = StartCoroutine(SimLoop());
+        private void Update()
+        {
+            if (!_simulationActive || _simSpeed <= 0 || _animals == null || _animals.Count == 0)
+                return;
+
+            SyncAnimalPositions();
+
+            for (int i = _animals.Count - 1; i >= 0; i--)
+            {
+                var animal = _animals[i];
+                if (animal.IsAtDestination())
+                {
+                    HandleAnimalEats(animal);
+                }
+            }
+        }
+
+        private void SyncAnimalPositions()
+        {
+            for (int i = 0; i < _animals.Count; i++)
+            {
+                var a = _animals[i];
+                Vector3 p = a.transform.position;
+                a.position = new Vector2Int(Mathf.RoundToInt(p.x), Mathf.RoundToInt(p.z));
+            }
         }
 
         private void ClearField()
         {
-            if (_simCoroutine != null)
+            _simulationActive = false;
+
+            if (_navMeshSurface != null)
             {
-                StopCoroutine(_simCoroutine);
-                _simCoroutine = null;
+                Destroy(_navMeshSurface);
+                _navMeshSurface = null;
             }
 
             ClearChildren(tilesParent);
@@ -120,9 +159,7 @@ namespace MZ.Field
         {
             if (parent == null) return;
             for (int i = parent.childCount - 1; i >= 0; i--)
-            {
                 Destroy(parent.GetChild(i).gameObject);
-            }
         }
 
         private void LinkAnimalsAndFeed()
@@ -218,95 +255,6 @@ namespace MZ.Field
             return occupiedCells.Contains(fallback) ? animalPos : fallback;
         }
 
-        private IEnumerator SimLoop()
-        {
-            while (true)
-            {
-                if (_simSpeed <= 0 || _animals == null || _animals.Count == 0)
-                {
-                    yield return PauseWait;
-                    continue;
-                }
-
-                yield return SimTick();
-            }
-        }
-
-        private IEnumerator SimTick()
-        {
-            float tickDuration = initialTickDuration / _currentAnimalSpeed / _simSpeed;
-
-            _activeAnimals.Clear();
-            for (int i = 0; i < _animals.Count; i++)
-            {
-                var a = _animals[i];
-                if (a.position != a.targetFeed.position)
-                {
-                    Vector2Int distVec = a.position - a.targetFeed.position;
-                    a.cachedPrioritySqrDistance = distVec.x * distVec.x + distVec.y * distVec.y;
-                    _activeAnimals.Add(a);
-                }
-            }
-
-            if (_activeAnimals.Count == 0)
-            {
-                yield return GetTickWait(tickDuration);
-                yield break;
-            }
-
-            _activeAnimals.Sort((a, b) =>
-            {
-                int cmp = a.cachedPrioritySqrDistance.CompareTo(b.cachedPrioritySqrDistance);
-                if (cmp != 0) return cmp;
-                return a.id.CompareTo(b.id);
-            });
-
-            _obstacles.Clear();
-            for (int i = 0; i < _animals.Count; i++)
-                _obstacles.Add(_animals[i].position);
-
-            for (int i = 0; i < _activeAnimals.Count; i++)
-            {
-                var animal = _activeAnimals[i];
-                _obstacles.Remove(animal.position);
-
-                var path = animal.FindPath(animal.targetFeed.position, _currentFieldLength, _obstacles, animal.canMoveDiagonal);
-
-                if (path != null && path.Count > 0)
-                {
-                    Vector2Int nextCell = path[0];
-                    _obstacles.Add(animal.position);
-                    _obstacles.Add(nextCell);
-                    animal.MoveToCell(nextCell, tickDuration);
-                }
-                else
-                {
-                    _obstacles.Add(animal.position);
-                }
-            }
-
-            yield return GetTickWait(tickDuration);
-
-            for (int i = _animals.Count - 1; i >= 0; i--)
-            {
-                var animal = _animals[i];
-                if (animal.position == animal.targetFeed.position)
-                {
-                    HandleAnimalEats(animal);
-                }
-            }
-        }
-
-        private WaitForSeconds GetTickWait(float tickDuration)
-        {
-            if (_tickWait == null || Mathf.Abs(_lastTickDuration - tickDuration) > 0.0001f)
-            {
-                _tickWait = new WaitForSeconds(tickDuration);
-                _lastTickDuration = tickDuration;
-            }
-            return _tickWait;
-        }
-
         private void HandleAnimalEats(AnimalController animal)
         {
             var feed = animal.targetFeed;
@@ -326,12 +274,15 @@ namespace MZ.Field
 
             float maxDist = _currentAnimalSpeed * 5f;
             feed.Respawn(_currentFieldLength, maxDist, _occupiedCells);
+
+            animal.SetAgentDestination(feed.transform.position);
         }
 
         private AnimalController CreateAnimal(int i, int x, int y, Color color)
         {
             AnimalController animal = Instantiate(animalPrefab, animalsParent);
             animal.Init(i, x, y, color);
+            animal.WarpAgent();
             return animal;
         }
 
@@ -368,6 +319,8 @@ namespace MZ.Field
                 feeds = new EntityState[0];
                 return;
             }
+
+            SyncAnimalPositions();
 
             animals = new EntityState[_animals.Count];
             for (int i = 0; i < _animals.Count; i++)
